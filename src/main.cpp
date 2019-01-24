@@ -5,6 +5,7 @@
 #include <WiFiManager.h>
 #include <RunningMedian.h>
 #include <PubSubClient.h>
+#include <MovingAverageFloat.h>
 
 #define MQTT_BROKER "192.168.7.25"
 #define MQTT_TOPIC "metrics/salt/distance"
@@ -17,7 +18,7 @@ WiFiManager wifiManager;
 WiFiClient wifiClient;
 PubSubClient mqttClient = PubSubClient(wifiClient);
 
-RunningMedian samples = RunningMedian(20);
+MovingAverageFloat<16> filter;
 String clientId = "ESP8266_" + String(ESP.getChipId(), HEX);
 
 void setup()
@@ -51,7 +52,7 @@ bool mqttReconnect()
     }
 }
 
-double getDistance()
+float getDistance()
 {
     // clear the trigger pin
     digitalWrite(TRIGGER_PIN, LOW);
@@ -66,7 +67,7 @@ double getDistance()
     ulong duration = pulseIn(ECHO_PIN, HIGH);
 
     // calculate the distance (0.0343 = speed of sound in cm/microsecond)
-    double distance = duration * 0.0343 / 2;
+    float distance = duration * 0.0343 / 2;
     return distance;
 }
 
@@ -75,20 +76,21 @@ void loop()
     // blink the LED
     digitalWrite(LED_PIN, LOW);
 
-    double distance = getDistance();
+    float measuredDistance = getDistance();
+    filter.add(measuredDistance);
 
-    samples.add(distance);
-    float median = samples.getMedian();
-
-    //Serial.printf("Distance: %f cm, count: %d, median: %f\n", distance, samples.getCount(), median);
+    float avgDistance = filter.get();
+    Serial.printf("Measured: %.2f, averaged: %.2f\n", measuredDistance, avgDistance);
 
     if (mqttClient.connected() || mqttReconnect())
     {
-        mqttClient.publish(MQTT_TOPIC, String(distance, 3).c_str());
+        String strDistance = String(avgDistance, 2);
+        Serial.printf("MQTT: %s -> %.2f\n", MQTT_TOPIC, avgDistance);
+        mqttClient.publish(MQTT_TOPIC, strDistance.c_str());
     }
 
     // turn on the LED
     digitalWrite(LED_PIN, HIGH);
 
-    delay(10 * 1000);
+    delay(15 * 1000);
 }
