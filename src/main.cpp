@@ -4,17 +4,25 @@
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>
 #include <RunningMedian.h>
+#include <PubSubClient.h>
+
+#define MQTT_BROKER "192.168.7.25"
+#define MQTT_TOPIC "metrics/salt/distance"
 
 #define LED_PIN 2
 #define TRIGGER_PIN D2
 #define ECHO_PIN D1
 
+WiFiManager wifiManager;
+WiFiClient wifiClient;
+PubSubClient mqttClient = PubSubClient(wifiClient);
+
 RunningMedian samples = RunningMedian(20);
+String clientId = "ESP8266_" + String(ESP.getChipId(), HEX);
 
 void setup()
 {
     Serial.begin(115200);
-    Serial.println("setup");
 
     pinMode(TRIGGER_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
@@ -23,8 +31,24 @@ void setup()
     // clear the LED
     digitalWrite(LED_PIN, HIGH);
 
-    WiFiManager wifiManager;
     wifiManager.autoConnect();
+    mqttClient.setServer(MQTT_BROKER, 1883);
+}
+
+bool mqttReconnect()
+{
+    Serial.print("Attempting MQTT connection...");
+    if (mqttClient.connect(clientId.c_str()))
+    {
+        Serial.println("connected");
+        return true;
+    }
+    else
+    {
+        Serial.print("failed, rc=");
+        Serial.println(mqttClient.state());
+        return false;
+    }
 }
 
 double getDistance()
@@ -56,10 +80,15 @@ void loop()
     samples.add(distance);
     float median = samples.getMedian();
 
-    Serial.printf("Distance: %f cm, count: %d, median: %f\n", distance, samples.getCount(), median);
+    //Serial.printf("Distance: %f cm, count: %d, median: %f\n", distance, samples.getCount(), median);
+
+    if (mqttClient.connected() || mqttReconnect())
+    {
+        mqttClient.publish(MQTT_TOPIC, String(distance, 3).c_str());
+    }
 
     // turn on the LED
     digitalWrite(LED_PIN, HIGH);
 
-    delay(60 * 1000);
+    delay(10 * 1000);
 }
