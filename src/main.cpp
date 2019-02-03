@@ -6,9 +6,10 @@
 #include <PubSubClient.h>
 #include <microsmooth.h>
 #include <ArduinoJson.h>
+#include <user_interface.h>
 
 #define MQTT_BROKER "192.168.7.25"
-#define MQTT_TOPIC "metrics/salt/distance"
+#define MQTT_TOPIC "metrics/salt"
 
 #define LED_PIN 2
 #define TRIGGER_PIN D2
@@ -88,6 +89,7 @@ void loop()
         JsonObject &root = jsonBuffer.createObject();
         root["measured"] = measuredDistance;
         root["filtered"] = filtered;
+        root["ramFree"] = system_get_free_heap_size();
 
         String strJson;
         root.printTo(strJson);
