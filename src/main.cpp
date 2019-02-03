@@ -3,9 +3,9 @@
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>
-#include <RunningMedian.h>
 #include <PubSubClient.h>
-#include <MovingAverageFloat.h>
+#include <microsmooth.h>
+#include <ArduinoJson.h>
 
 #define MQTT_BROKER "192.168.7.25"
 #define MQTT_TOPIC "metrics/salt/distance"
@@ -17,8 +17,8 @@
 WiFiManager wifiManager;
 WiFiClient wifiClient;
 PubSubClient mqttClient = PubSubClient(wifiClient);
+uint16_t *statHistory;
 
-MovingAverageFloat<16> filter;
 String clientId = "ESP8266_" + String(ESP.getChipId(), HEX);
 
 void setup()
@@ -31,6 +31,8 @@ void setup()
 
     // clear the LED
     digitalWrite(LED_PIN, HIGH);
+
+    statHistory = ms_init(EMA);
 
     wifiManager.autoConnect();
     mqttClient.setServer(MQTT_BROKER, 1883);
@@ -77,20 +79,25 @@ void loop()
     digitalWrite(LED_PIN, LOW);
 
     float measuredDistance = getDistance();
-    filter.add(measuredDistance);
-
-    float avgDistance = filter.get();
-    Serial.printf("Measured: %.2f, averaged: %.2f\n", measuredDistance, avgDistance);
+    int rounded = measuredDistance + 0.5;
+    int filtered = ema_filter(rounded, statHistory);
 
     if (mqttClient.connected() || mqttReconnect())
     {
-        String strDistance = String(avgDistance, 2);
-        Serial.printf("MQTT: %s -> %.2f\n", MQTT_TOPIC, avgDistance);
-        mqttClient.publish(MQTT_TOPIC, strDistance.c_str());
+        StaticJsonBuffer<128> jsonBuffer;
+        JsonObject &root = jsonBuffer.createObject();
+        root["measured"] = measuredDistance;
+        root["filtered"] = filtered;
+
+        String strJson;
+        root.printTo(strJson);
+
+        Serial.printf("MQTT: %s -> %s\n", MQTT_TOPIC, strJson.c_str());
+        mqttClient.publish(MQTT_TOPIC, strJson.c_str());
     }
 
-    // turn on the LED
+    // turn off the LED
     digitalWrite(LED_PIN, HIGH);
 
-    delay(15 * 1000);
+    delay(30 * 1000);
 }
