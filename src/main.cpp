@@ -4,7 +4,7 @@
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>
 #include <PubSubClient.h>
-#include <microsmooth.h>
+#include <RunningMedian.h>
 #include <ArduinoJson.h>
 #include <user_interface.h>
 
@@ -12,13 +12,13 @@
 #define MQTT_TOPIC "metrics/salt"
 
 #define LED_PIN 2
-#define TRIGGER_PIN D2
-#define ECHO_PIN D1
+#define TRIGGER_PIN D1
+#define ECHO_PIN D2
 
 WiFiManager wifiManager;
 WiFiClient wifiClient;
 PubSubClient mqttClient = PubSubClient(wifiClient);
-uint16_t *statHistory;
+RunningMedian runningMedian = RunningMedian(9);
 
 String clientId = "ESP8266_" + String(ESP.getChipId(), HEX);
 
@@ -32,8 +32,6 @@ void setup()
 
     // clear the LED
     digitalWrite(LED_PIN, HIGH);
-
-    statHistory = ms_init(EMA);
 
     wifiManager.autoConnect();
     mqttClient.setServer(MQTT_BROKER, 1883);
@@ -80,15 +78,14 @@ void loop()
     digitalWrite(LED_PIN, LOW);
 
     float measuredDistance = getDistance();
-    int rounded = measuredDistance + 0.5;
-    int filtered = ema_filter(rounded, statHistory);
+    runningMedian.add(measuredDistance);
 
     if (mqttClient.connected() || mqttReconnect())
     {
         StaticJsonBuffer<128> jsonBuffer;
         JsonObject &root = jsonBuffer.createObject();
         root["measured"] = measuredDistance;
-        root["filtered"] = filtered;
+        root["averaged"] = runningMedian.getMedian();
         root["ramFree"] = system_get_free_heap_size();
 
         String strJson;
@@ -101,5 +98,5 @@ void loop()
     // turn off the LED
     digitalWrite(LED_PIN, HIGH);
 
-    delay(30 * 1000);
+    delay(60 * 1000);
 }
