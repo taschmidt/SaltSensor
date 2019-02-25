@@ -15,6 +15,8 @@
 #define TRIGGER_PIN D1
 #define ECHO_PIN D2
 
+#define DISTANCE_REPORT_INTERVAL 5 * 60 * 1000
+
 WiFiManager wifiManager;
 WiFiClient wifiClient;
 PubSubClient mqttClient = PubSubClient(wifiClient);
@@ -74,29 +76,36 @@ float getDistance()
 
 void loop()
 {
-    // blink the LED
-    digitalWrite(LED_PIN, LOW);
+    static unsigned long lastReport = 0;
 
-    float measuredDistance = getDistance();
-    runningMedian.add(measuredDistance);
-
-    if (mqttClient.connected() || mqttReconnect())
+    if (!lastReport || millis() - lastReport > DISTANCE_REPORT_INTERVAL)
     {
-        StaticJsonBuffer<128> jsonBuffer;
-        JsonObject &root = jsonBuffer.createObject();
-        root["measured"] = measuredDistance;
-        root["averaged"] = runningMedian.getMedian();
-        root["ramFree"] = system_get_free_heap_size();
+        // blink the LED
+        digitalWrite(LED_PIN, LOW);
 
-        String strJson;
-        root.printTo(strJson);
+        float measuredDistance = getDistance();
+        runningMedian.add(measuredDistance);
 
-        Serial.printf("MQTT: %s -> %s\n", MQTT_TOPIC, strJson.c_str());
-        mqttClient.publish(MQTT_TOPIC, strJson.c_str());
+        if (mqttClient.connected() || mqttReconnect())
+        {
+            StaticJsonBuffer<128> jsonBuffer;
+            JsonObject &root = jsonBuffer.createObject();
+            root["measured"] = measuredDistance;
+            root["averaged"] = runningMedian.getMedian();
+            root["ramFree"] = system_get_free_heap_size();
+
+            String strJson;
+            root.printTo(strJson);
+
+            Serial.printf("MQTT: %s -> %s\n", MQTT_TOPIC, strJson.c_str());
+            mqttClient.publish(MQTT_TOPIC, strJson.c_str());
+        }
+
+        // turn off the LED
+        digitalWrite(LED_PIN, HIGH);
+
+        lastReport = millis();
     }
 
-    // turn off the LED
-    digitalWrite(LED_PIN, HIGH);
-
-    delay(60 * 1000);
+    delay(1000);
 }
