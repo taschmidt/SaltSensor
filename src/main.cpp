@@ -8,7 +8,7 @@
 #include <ArduinoJson.h>
 #include <user_interface.h>
 
-#define MQTT_BROKER "192.168.7.25"
+#define MQTT_BROKER "192.168.1.10"
 #define MQTT_TOPIC "metrics/salt"
 
 #define LED_PIN 2
