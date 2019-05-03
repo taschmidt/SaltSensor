@@ -1,15 +1,10 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <DNSServer.h>
-#include <ESP8266WebServer.h>
 #include <WiFiManager.h>
 #include <PubSubClient.h>
-#include <RunningMedian.h>
 #include <ArduinoJson.h>
-#include <user_interface.h>
+#include <NTPClient.h>
 
-#define MQTT_BROKER "192.168.1.10"
-#define MQTT_TOPIC "metrics/salt"
+#include "config.h"
 
 #define LED_PIN 2
 #define TRIGGER_PIN D1
@@ -18,11 +13,17 @@
 #define DISTANCE_REPORT_INTERVAL 5 * 60 * 1000
 
 WiFiManager wifiManager;
-WiFiClient wifiClient;
-PubSubClient mqttClient = PubSubClient(wifiClient);
-RunningMedian runningMedian = RunningMedian(9);
+BearSSL::WiFiClientSecure secureClient;
+WiFiUDP udp;
+NTPClient ntpClient(udp);
 
-String clientId = "ESP8266_" + String(ESP.getChipId(), HEX);
+// CERTIFICATES
+X509List ca(AmazonRootCA1_pem, AmazonRootCA1_pem_len);
+X509List cert(__3aa4c45856_certificate_pem_crt, __3aa4c45856_certificate_pem_crt_len);
+PrivateKey key(__3aa4c45856_private_pem_key, __3aa4c45856_private_pem_key_len);
+
+PubSubClient pubSubClient(AWS_IOT_ADDRESS, 8883, secureClient);
+const char *clientId = ("ESP8266_" + String(ESP.getChipId(), HEX)).c_str();
 
 void setup()
 {
@@ -36,13 +37,26 @@ void setup()
     digitalWrite(LED_PIN, HIGH);
 
     wifiManager.autoConnect();
-    mqttClient.setServer(MQTT_BROKER, 1883);
+    secureClient.setTrustAnchors(&ca);
+    secureClient.setClientRSACert(&cert, &key);
+    secureClient.setBufferSizes(512, 512);
+
+    ntpClient.begin();
+
+    Serial.println("done");
 }
 
 bool mqttReconnect()
 {
+    while (!ntpClient.update())
+    {
+        ntpClient.forceUpdate();
+    }
+
+    secureClient.setX509Time(ntpClient.getEpochTime());
+
     Serial.print("Attempting MQTT connection...");
-    if (mqttClient.connect(clientId.c_str()))
+    if (pubSubClient.connect(clientId))
     {
         Serial.println("connected");
         return true;
@@ -50,7 +64,12 @@ bool mqttReconnect()
     else
     {
         Serial.print("failed, rc=");
-        Serial.println(mqttClient.state());
+        Serial.println(pubSubClient.state());
+
+        char buf[256];
+        secureClient.getLastSSLError(buf, sizeof(buf) / sizeof(*buf));
+        Serial.printf("Last SSL Error: %s\n", buf);
+
         return false;
     }
 }
@@ -78,34 +97,35 @@ void loop()
 {
     static unsigned long lastReport = 0;
 
+    digitalWrite(LED_PIN, LOW);
+
     if (!lastReport || millis() - lastReport > DISTANCE_REPORT_INTERVAL)
     {
         // blink the LED
         digitalWrite(LED_PIN, LOW);
 
-        float measuredDistance = getDistance();
-        runningMedian.add(measuredDistance);
-
-        if (mqttClient.connected() || mqttReconnect())
+        if (pubSubClient.connected() || mqttReconnect())
         {
-            StaticJsonBuffer<128> jsonBuffer;
-            JsonObject &root = jsonBuffer.createObject();
-            root["measured"] = measuredDistance;
-            root["averaged"] = runningMedian.getMedian();
-            root["ramFree"] = system_get_free_heap_size();
+            char buf[128];
 
-            String strJson;
-            root.printTo(strJson);
+            float measuredDistance = getDistance();
+            if (measuredDistance > 0)
+            {
+                StaticJsonDocument<128> doc;
+                JsonObject state = doc.createNestedObject("state");
+                JsonObject reported = state.createNestedObject("reported");
+                reported["distance"] = measuredDistance;
+                serializeJson(doc, buf, sizeof(buf) / sizeof(*buf));
 
-            Serial.printf("MQTT: %s -> %s\n", MQTT_TOPIC, strJson.c_str());
-            mqttClient.publish(MQTT_TOPIC, strJson.c_str());
+                Serial.printf("Publishing distance of %f...\n", measuredDistance);
+                pubSubClient.publish("$aws/things/salt-sensor/shadow/update", buf);
+
+                lastReport = millis();
+            }
         }
-
-        // turn off the LED
-        digitalWrite(LED_PIN, HIGH);
-
-        lastReport = millis();
     }
 
-    delay(1000);
+    digitalWrite(LED_PIN, HIGH);
+
+    delay(10000);
 }
