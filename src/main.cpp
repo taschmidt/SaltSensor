@@ -115,6 +115,7 @@ void loop()
                 JsonObject state = doc.createNestedObject("state");
                 JsonObject reported = state.createNestedObject("reported");
                 reported["distance"] = measuredDistance;
+                reported["ramFree"] = system_get_free_heap_size();
                 serializeJson(doc, buf, sizeof(buf) / sizeof(*buf));
 
                 Serial.printf("Publishing distance of %f...\n", measuredDistance);
