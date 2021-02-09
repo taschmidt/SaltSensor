@@ -19,8 +19,8 @@ NTPClient ntpClient(udp);
 
 // CERTIFICATES
 X509List ca(AmazonRootCA1_pem, AmazonRootCA1_pem_len);
-X509List cert(__3aa4c45856_certificate_pem_crt, __3aa4c45856_certificate_pem_crt_len);
-PrivateKey key(__3aa4c45856_private_pem_key, __3aa4c45856_private_pem_key_len);
+X509List cert(__373b5b37d9_certificate_pem_crt, __373b5b37d9_certificate_pem_crt_len);
+PrivateKey key(__373b5b37d9_private_pem_key, __373b5b37d9_private_pem_key_len);
 
 PubSubClient pubSubClient(AWS_IOT_ADDRESS, 8883, secureClient);
 const char *clientId = ("ESP8266_" + String(ESP.getChipId(), HEX)).c_str();
@@ -36,6 +36,7 @@ void setup()
     // clear the LED
     digitalWrite(LED_PIN, HIGH);
 
+    wifiManager.setWiFiAutoReconnect(true);
     wifiManager.autoConnect();
     secureClient.setTrustAnchors(&ca);
     secureClient.setClientRSACert(&cert, &key);
@@ -104,7 +105,7 @@ void loop()
         // blink the LED
         digitalWrite(LED_PIN, LOW);
 
-        if (pubSubClient.connected() || mqttReconnect())
+        if (wifiManager.autoConnect() && (pubSubClient.connected() || mqttReconnect()))
         {
             char buf[128];
 
@@ -120,6 +121,7 @@ void loop()
 
                 Serial.printf("Publishing distance of %f...\n", measuredDistance);
                 pubSubClient.publish("$aws/things/salt-sensor/shadow/update", buf);
+                Serial.print("Done!");
 
                 lastReport = millis();
             }
