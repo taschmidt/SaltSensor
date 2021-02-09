@@ -36,15 +36,13 @@ void setup()
     // clear the LED
     digitalWrite(LED_PIN, HIGH);
 
-    wifiManager.setWiFiAutoReconnect(true);
-    wifiManager.autoConnect();
     secureClient.setTrustAnchors(&ca);
     secureClient.setClientRSACert(&cert, &key);
     secureClient.setBufferSizes(512, 512);
 
     ntpClient.begin();
 
-    Serial.println("done");
+    Serial.println("setup() done.");
 }
 
 bool mqttReconnect()
@@ -56,10 +54,10 @@ bool mqttReconnect()
 
     secureClient.setX509Time(ntpClient.getEpochTime());
 
-    Serial.print("Attempting MQTT connection...");
+    Serial.print("Attempting MQTT connection... ");
     if (pubSubClient.connect(clientId))
     {
-        Serial.println("connected");
+        Serial.println("connected.");
         return true;
     }
     else
@@ -119,9 +117,9 @@ void loop()
                 reported["ramFree"] = system_get_free_heap_size();
                 serializeJson(doc, buf, sizeof(buf) / sizeof(*buf));
 
-                Serial.printf("Publishing distance of %f...\n", measuredDistance);
+                Serial.printf("Publishing distance of %f... ", measuredDistance);
                 pubSubClient.publish("$aws/things/salt-sensor/shadow/update", buf);
-                Serial.print("Done!");
+                Serial.println("done.");
 
                 lastReport = millis();
             }
